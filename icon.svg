@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" role="img" aria-labelledby="title">
+  <title>CISSP Cram</title>
+  <rect width="192" height="192" rx="36" fill="#f7f6f2"/>
+  <rect x="24" y="24" width="144" height="144" rx="28" fill="#ffffff" stroke="#dfddd6" stroke-width="4"/>
+  <path d="M60 96c0-25 16-43 39-43 14 0 26 6 33 17l-19 11c-3-6-8-9-15-9-12 0-20 10-20 24s8 24 20 24c7 0 12-3 15-9l19 11c-7 11-19 17-33 17-23 0-39-18-39-43z" fill="#0f766e"/>
+  <path d="M50 151h92" stroke="#c9c5ba" stroke-width="8" stroke-linecap="round"/>
+</svg>
