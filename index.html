@@ -3,186 +3,29 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>CISSP Study References</title>
-    <style>
-      :root {
-        color-scheme: light;
-        --ink: #172033;
-        --muted: #5f6b7a;
-        --line: #d9dee7;
-        --paper: #fbfcff;
-        --accent: #0f766e;
-        --accent-strong: #0b5f59;
-        --panel: #ffffff;
-      }
-
-      * {
-        box-sizing: border-box;
-      }
-
-      body {
-        margin: 0;
-        min-height: 100vh;
-        font-family: Arial, Helvetica, sans-serif;
-        color: var(--ink);
-        background:
-          linear-gradient(180deg, rgba(15, 118, 110, 0.08), rgba(255, 255, 255, 0) 280px),
-          var(--paper);
-      }
-
-      main {
-        width: min(960px, calc(100% - 32px));
-        margin: 0 auto;
-        padding: 56px 0;
-      }
-
-      header {
-        margin-bottom: 32px;
-      }
-
-      h1 {
-        margin: 0 0 12px;
-        font-size: clamp(2rem, 6vw, 4.25rem);
-        line-height: 1;
-        letter-spacing: 0;
-      }
-
-      p {
-        max-width: 680px;
-        margin: 0;
-        color: var(--muted);
-        font-size: 1.08rem;
-        line-height: 1.6;
-      }
-
-      .reference-list {
-        display: grid;
-        gap: 12px;
-        margin: 0;
-        padding: 0;
-        list-style: none;
-      }
-
-      .reference {
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        box-shadow: 0 12px 32px rgba(23, 32, 51, 0.08);
-      }
-
-      .reference a {
-        display: grid;
-        grid-template-columns: auto 1fr auto;
-        gap: 16px;
-        align-items: center;
-        min-height: 82px;
-        padding: 18px 20px;
-        color: inherit;
-        text-decoration: none;
-      }
-
-      .reference a:hover,
-      .reference a:focus-visible {
-        outline: 3px solid rgba(15, 118, 110, 0.22);
-        outline-offset: 2px;
-      }
-
-      .file-mark {
-        display: inline-grid;
-        place-items: center;
-        width: 44px;
-        height: 44px;
-        border-radius: 8px;
-        background: #e8f3f1;
-        color: var(--accent-strong);
-        font-size: 0.78rem;
-        font-weight: 700;
-      }
-
-      .title {
-        display: block;
-        overflow-wrap: anywhere;
-        font-weight: 700;
-        line-height: 1.35;
-      }
-
-      .meta {
-        display: block;
-        margin-top: 4px;
-        color: var(--muted);
-        font-size: 0.92rem;
-      }
-
-      .action {
-        color: var(--accent);
-        font-weight: 700;
-      }
-
-      @media (max-width: 640px) {
-        main {
-          width: min(100% - 24px, 960px);
-          padding: 36px 0;
-        }
-
-        .reference a {
-          grid-template-columns: auto 1fr;
-        }
-
-        .action {
-          grid-column: 2;
-        }
-      }
-    </style>
+    <meta name="theme-color" content="#f7f6f2">
+    <meta
+      name="description"
+      content="A local-first CISSP cram app for diagnostics, weak-area study, practice questions, flashcards, and exam readiness tracking."
+    >
+    <title>CISSP Cram</title>
+    <link rel="icon" href="icon.svg" type="image/svg+xml">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="stylesheet" href="styles.css">
   </head>
   <body>
-    <main>
-      <header>
-        <h1>CISSP Study References</h1>
-        <p>A compact public library of CISSP preparation resources from this repository.</p>
-      </header>
-
-      <ul class="reference-list">
-        <li class="reference">
-          <a href="References/CISSP%20For%20Dummies%20by%20Peter%20H.%20Gregory.epub">
-            <span class="file-mark">EPUB</span>
-            <span>
-              <span class="title">CISSP For Dummies by Peter H. Gregory</span>
-              <span class="meta">Study guide</span>
-            </span>
-            <span class="action">Open</span>
-          </a>
-        </li>
-        <li class="reference">
-          <a href="References/ISC2CISSPCertifiedInformationSystemsSecurityProfes....epub">
-            <span class="file-mark">EPUB</span>
-            <span>
-              <span class="title">ISC2 CISSP Certified Information Systems Security Professional</span>
-              <span class="meta">Reference edition</span>
-            </span>
-            <span class="action">Open</span>
-          </a>
-        </li>
-        <li class="reference">
-          <a href="References/ISC2_CISSP_Certified_Information_Systems_Security_Professional_Official.epub">
-            <span class="file-mark">EPUB</span>
-            <span>
-              <span class="title">ISC2 CISSP Certified Information Systems Security Professional Official</span>
-              <span class="meta">Official reference</span>
-            </span>
-            <span class="action">Open</span>
-          </a>
-        </li>
-        <li class="reference">
-          <a href="References/VERSAtileReads_CISSPExamPrep500PracticeQuestions1stEdition_epub.epub">
-            <span class="file-mark">EPUB</span>
-            <span>
-              <span class="title">CISSP Exam Prep: 500 Practice Questions, 1st Edition</span>
-              <span class="meta">Practice questions</span>
-            </span>
-            <span class="action">Open</span>
-          </a>
-        </li>
-      </ul>
-    </main>
+    <noscript>
+      <main class="noscript">
+        <h1>CISSP Cram needs JavaScript</h1>
+        <p>This app stores your progress locally and uses JavaScript for practice, flashcards, and search.</p>
+      </main>
+    </noscript>
+    <div id="app" class="app-loading">
+      <div class="loading-card">
+        <span class="brand-mark">C</span>
+        <span>Loading CISSP Cram...</span>
+      </div>
+    </div>
+    <script src="app.js" defer></script>
   </body>
 </html>
