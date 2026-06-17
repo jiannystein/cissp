@@ -1,8 +1,9 @@
-const CACHE_NAME = "cissp-cram-2026-06-17";
+const CACHE_NAME = "cissp-cram-2026-06-18";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
+  "./content.js",
   "./app.js",
   "./icon.svg",
   "./manifest.webmanifest"

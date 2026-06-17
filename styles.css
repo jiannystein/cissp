@@ -529,6 +529,11 @@ h3 {
   gap: 12px;
 }
 
+.domain-card.is-locked {
+  background: var(--paper-soft);
+  opacity: 0.78;
+}
+
 .domain-card-head {
   display: flex;
   align-items: flex-start;
@@ -571,6 +576,20 @@ h3 {
   background: var(--paper-soft);
   color: var(--muted);
   font-size: 0.78rem;
+}
+
+.compact-list {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.domain-overview {
+  display: grid;
+  gap: 16px;
 }
 
 .daily-list {
@@ -839,6 +858,16 @@ h3 {
   color: var(--success);
 }
 
+.status.locked {
+  background: #ece9e1;
+  color: var(--subtle);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .muted {
   color: var(--muted);
 }
@@ -908,6 +937,40 @@ h3 {
   margin: 0;
   color: var(--muted);
   line-height: 1.6;
+}
+
+.flow-diagram {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.flow-step {
+  display: grid;
+  gap: 8px;
+  min-height: 96px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper-soft);
+  padding: 12px;
+}
+
+.flow-step span {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 0.78rem;
+  font-weight: 820;
+}
+
+.flow-step strong {
+  color: var(--ink);
+  font-size: 0.9rem;
+  line-height: 1.35;
 }
 
 .comparison {
@@ -1158,6 +1221,7 @@ h3 {
   .grid.four,
   .form-grid,
   .explanation-grid,
+  .flow-diagram,
   .lesson-layout,
   .readiness-card {
     grid-template-columns: 1fr;

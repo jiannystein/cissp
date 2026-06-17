@@ -1,10 +1,11 @@
 "use strict";
 
-const APP_VERSION = "2026.06.17";
+const APP_VERSION = "2026.06.18";
 const DB_NAME = "cissp-cram-local";
 const STORE_NAME = "kv";
 const STATE_KEY = "state";
 const MS_DAY = 24 * 60 * 60 * 1000;
+const DOMAIN_GATE_PASS_RATE = 0.9;
 
 const navItems = [
   ["dashboard", "D", "Dashboard"],
@@ -596,6 +597,8 @@ const domains = [
   }
 ];
 
+applyContentPack(getContentPack());
+
 const questions = [
   {
     id: "q1",
@@ -1175,6 +1178,8 @@ const questions = [
   }
 ];
 
+questions.push(...buildSupplementalPracticeQuestions(domains));
+
 const conceptCheckQuestions = {
   "risk-treatment": {
     answers: ["The accountable business or risk owner", "The tool administrator", "The cyber insurance broker", "The vulnerability scanner"],
@@ -1324,7 +1329,7 @@ const conceptCheckQuestions = {
 
 const retestQuestions = domains.flatMap((domain) => domain.concepts.map((concept) => {
   const base = questions.find((question) => question.concept === concept.id);
-  const check = conceptCheckQuestions[concept.id];
+  const check = conceptCheckQuestions[concept.id] || concept.checkQuestion || makeFallbackCheckQuestion(concept);
   return {
     id: `r-${concept.id}`,
     domain: domain.id,
@@ -1374,6 +1379,110 @@ const baseFlashcards = [
   ["fc28", "d4", "secure-protocols", "Private network misconception", "A private route is not the same as an authenticated, encrypted channel.", "Misconception"]
 ].map(([id, domain, concept, front, back, type]) => ({ id, domain, concept, front, back, type }));
 
+baseFlashcards.push(...buildConceptFlashcards(domains, baseFlashcards));
+
+function getContentPack() {
+  return typeof globalThis !== "undefined" ? globalThis.CISSP_SUPPLEMENTAL_CONTENT : null;
+}
+
+function uniqueStrings(items) {
+  return [...new Set((items || []).filter(Boolean))];
+}
+
+function applyContentPack(pack) {
+  if (!pack) return;
+  if (Array.isArray(pack.sources)) {
+    for (const source of pack.sources) {
+      const exists = sourceRefs.some((item) => item.id === source.id || item.title === source.title);
+      if (!exists) sourceRefs.push(source);
+    }
+  }
+  for (const patch of pack.domains || []) {
+    const domain = domains.find((item) => item.id === patch.id);
+    if (!domain) continue;
+    if (patch.objectiveSummary) domain.objectiveSummary = patch.objectiveSummary;
+    if (Array.isArray(patch.objectives) && patch.objectives.length) domain.objectives = patch.objectives;
+    domain.sourceSynthesis = uniqueStrings([...(domain.sourceSynthesis || []), ...(patch.sourceSynthesis || [])]);
+    domain.studyPath = uniqueStrings([...(domain.studyPath || []), ...(patch.studyPath || [])]);
+    for (const concept of patch.concepts || []) {
+      const existing = domain.concepts.find((item) => item.id === concept.id);
+      if (existing) {
+        Object.assign(existing, concept);
+      } else {
+        domain.concepts.push(concept);
+      }
+    }
+  }
+}
+
+function buildSupplementalPracticeQuestions(sourceDomains) {
+  const rows = [];
+  for (const domain of sourceDomains) {
+    for (const concept of domain.concepts) {
+      if (questions.some((question) => question.concept === concept.id)) continue;
+      const practice = concept.practiceQuestion || concept.practice;
+      if (!practice) continue;
+      const fallback = makeFallbackCheckQuestion(concept);
+      rows.push({
+        id: `q-${concept.id}`,
+        domain: domain.id,
+        concept: concept.id,
+        mode: practice.mode || "scenario",
+        difficulty: practice.difficulty || 2,
+        prompt: practice.prompt || concept.check,
+        answers: practice.answers || fallback.answers,
+        correct: Number.isInteger(practice.correct) ? practice.correct : fallback.correct,
+        explanation: practice.explanation || fallback.explanation,
+        distractors: practice.distractors || fallback.distractors,
+        principle: practice.principle || concept.why || "CISSP decision rule",
+        perspective: practice.perspective || "Management"
+      });
+    }
+  }
+  return rows;
+}
+
+function makeFallbackCheckQuestion(concept) {
+  const best = concept.checkAnswer || concept.quick || concept.hook || concept.title;
+  return {
+    answers: [
+      best,
+      "Choose the newest technical control before understanding the business need.",
+      "Delegate the decision entirely to a tool or vendor.",
+      "Ignore documentation because the team already understands the system."
+    ],
+    correct: 0,
+    explanation: concept.checkExplanation || concept.why || concept.simple || "The best answer follows the CISSP management-first decision rule.",
+    distractors: [
+      "Correct. This answer aligns the control with the concept and business objective.",
+      "A tool-first answer often skips governance, risk, or requirements.",
+      "Vendors and tools can support decisions but do not own accountability.",
+      "CISSP favors documented, repeatable, auditable decisions."
+    ]
+  };
+}
+
+function buildConceptFlashcards(sourceDomains, existingCards) {
+  const covered = new Set(existingCards.map((card) => card.concept));
+  const cards = [];
+  for (const domain of sourceDomains) {
+    for (const concept of domain.concepts) {
+      if (covered.has(concept.id)) continue;
+      const card = concept.flashcard || {};
+      cards.push({
+        id: `fc-${concept.id}`,
+        domain: domain.id,
+        concept: concept.id,
+        front: card.front || `${concept.title}: exam hook`,
+        back: card.back || `${concept.hook || concept.quick} Trap: ${concept.trap}`,
+        type: card.type || "Concept"
+      });
+      covered.add(concept.id);
+    }
+  }
+  return cards;
+}
+
 let state = null;
 let dbPromise = null;
 let searchCache = null;
@@ -1421,6 +1530,13 @@ function defaultDomainStats() {
   ]));
 }
 
+function defaultDomainGates() {
+  return Object.fromEntries(domains.map((domain) => [
+    domain.id,
+    { passed: false, attempts: 0, lastScore: null, lastCompletedAt: null, lastWeakConcepts: [] }
+  ]));
+}
+
 function makeDefaultState() {
   return {
     version: APP_VERSION,
@@ -1434,6 +1550,7 @@ function makeDefaultState() {
       sessionLength: 50
     },
     domainStats: defaultDomainStats(),
+    domainGates: defaultDomainGates(),
     attempts: [],
     errors: [],
     cardReviews: {},
@@ -1457,11 +1574,16 @@ function mergeState(saved) {
   const merged = { ...base, ...(saved || {}) };
   merged.settings = { ...base.settings, ...(saved?.settings || {}) };
   merged.domainStats = { ...defaultDomainStats(), ...(saved?.domainStats || {}) };
+  merged.domainGates = { ...defaultDomainGates(), ...(saved?.domainGates || {}) };
   for (const domain of domains) {
     merged.domainStats[domain.id] = {
       ...defaultDomainStats()[domain.id],
       ...(saved?.domainStats?.[domain.id] || {}),
       concepts: { ...(saved?.domainStats?.[domain.id]?.concepts || {}) }
+    };
+    merged.domainGates[domain.id] = {
+      ...defaultDomainGates()[domain.id],
+      ...(saved?.domainGates?.[domain.id] || {})
     };
   }
   merged.attempts = Array.isArray(saved?.attempts) ? saved.attempts : [];
@@ -1569,6 +1691,74 @@ function cardById(id) {
   return baseFlashcards.find((card) => card.id === id);
 }
 
+function domainIndex(domainId) {
+  return Math.max(0, domains.findIndex((domain) => domain.id === domainId));
+}
+
+function previousDomain(domainId) {
+  const index = domainIndex(domainId);
+  return index > 0 ? domains[index - 1] : null;
+}
+
+function nextDomain(domainId) {
+  const index = domainIndex(domainId);
+  return index >= 0 && index < domains.length - 1 ? domains[index + 1] : null;
+}
+
+function isDomainPassed(domainId) {
+  return Boolean(state?.domainGates?.[domainId]?.passed);
+}
+
+function isDomainUnlocked(domainId) {
+  const index = domainIndex(domainId);
+  if (index === 0) return true;
+  return isDomainPassed(domains[index - 1].id);
+}
+
+function currentStudyDomain() {
+  return domains.find((domain) => isDomainUnlocked(domain.id) && !isDomainPassed(domain.id))
+    || [...domains].reverse().find((domain) => isDomainUnlocked(domain.id))
+    || domains[0];
+}
+
+function domainGateQuestions(domainId) {
+  return allQuestions.filter((question) => question.domain === domainId);
+}
+
+function domainGateResult(session) {
+  const total = session.answers.length;
+  const correct = session.answers.filter((answer) => answer.correct).length;
+  const score = total ? correct / total : 0;
+  const weakConcepts = session.answers
+    .filter((answer) => !answer.correct)
+    .map((answer) => questionById(answer.questionId)?.concept)
+    .filter(Boolean);
+  return {
+    total,
+    correct,
+    score,
+    passed: total > 0 && score >= DOMAIN_GATE_PASS_RATE,
+    weakConcepts: [...new Set(weakConcepts)]
+  };
+}
+
+function finalizeDomainGateSession(session) {
+  if (session.gateFinalized) return domainGateResult(session);
+  const result = domainGateResult(session);
+  const domainId = session.domainId || questionById(session.questionIds[0])?.domain || state.selectedDomain;
+  const previous = state.domainGates[domainId] || defaultDomainGates()[domainId];
+  state.domainGates[domainId] = {
+    ...previous,
+    passed: previous.passed || result.passed,
+    attempts: (previous.attempts || 0) + 1,
+    lastScore: result.score,
+    lastCompletedAt: new Date().toISOString(),
+    lastWeakConcepts: result.weakConcepts
+  };
+  session.gateFinalized = true;
+  return result;
+}
+
 function domainScore(domainId) {
   const stats = state.domainStats[domainId] || { seen: 0, correct: 0, confidenceTotal: 0, concepts: {} };
   if (!stats.seen) return 0;
@@ -1589,7 +1779,8 @@ function overallReadiness() {
 }
 
 function weakestDomains(limit = 3) {
-  return [...domains]
+  return domains
+    .filter((domain) => !state?.domainGates || isDomainUnlocked(domain.id))
     .map((domain) => ({ domain, score: domainScore(domain.id) }))
     .sort((a, b) => a.score - b.score || b.domain.weight - a.domain.weight)
     .slice(0, limit);
@@ -1598,6 +1789,7 @@ function weakestDomains(limit = 3) {
 function weakestConcepts(limit = 3) {
   const rows = [];
   for (const domain of domains) {
+    if (state?.domainGates && !isDomainUnlocked(domain.id)) continue;
     const domainStats = state.domainStats[domain.id] || {};
     for (const concept of domain.concepts) {
       const stats = domainStats.concepts?.[concept.id] || { seen: 0, correct: 0, confidenceTotal: 0 };
@@ -1677,6 +1869,7 @@ function questionPoolForMode(mode) {
   if (mode === "diagnostic") {
     return domains.flatMap((domain) => questions.filter((question) => question.domain === domain.id).slice(0, 2));
   }
+  if (mode === "domain-gate") return domainGateQuestions(state.selectedDomain);
   if (mode === "weak") {
     const weakIds = new Set(weakestDomains(3).map((row) => row.domain.id));
     return allQuestions.filter((question) => weakIds.has(question.domain));
@@ -1704,8 +1897,9 @@ function startQuestionSession(mode) {
   const pool = questionPoolForMode(mode);
   state.session = {
     id: crypto?.randomUUID ? crypto.randomUUID() : `session-${Date.now()}`,
-    type: mode === "diagnostic" ? "diagnostic" : "practice",
+    type: mode === "diagnostic" ? "diagnostic" : mode === "domain-gate" ? "domain-gate" : "practice",
     mode,
+    domainId: state.selectedDomain,
     questionIds: pool.map((question) => question.id),
     index: 0,
     selected: null,
@@ -1865,6 +2059,8 @@ function buildSearchIndex() {
           concept.trap,
           concept.hook,
           concept.check,
+          ...(concept.flow || []),
+          ...(concept.sources || []),
           ...(concept.related || [])
         ].join(" "),
         action: { view: "domains", domain: domain.id, concept: concept.id }
@@ -2250,13 +2446,15 @@ function renderDailyList(items) {
 
 function renderDomains() {
   const { domain, concept } = conceptById(state.selectedConcept);
-  const selectedDomain = domainById(state.selectedDomain || domain.id);
+  let selectedDomain = domainById(state.selectedDomain || domain.id);
+  if (!isDomainUnlocked(selectedDomain.id)) selectedDomain = currentStudyDomain();
   const selectedConcept = selectedDomain.concepts.find((item) => item.id === state.selectedConcept) || selectedDomain.concepts[0];
   return `
     <div class="view-stack">
       <section class="grid two">
         ${domains.map((item) => renderDomainCard(item)).join("")}
       </section>
+      ${renderDomainOverview(selectedDomain)}
       <section class="section lesson-layout">
         <div class="lesson-menu">
           <h2>Concepts</h2>
@@ -2281,26 +2479,111 @@ function renderDomains() {
 
 function renderDomainCard(domain) {
   const score = domainScore(domain.id);
+  const unlocked = isDomainUnlocked(domain.id);
+  const passed = isDomainPassed(domain.id);
+  const gate = state.domainGates[domain.id] || {};
+  const statusClass = passed ? "resolved" : unlocked ? "open" : "locked";
+  const statusLabel = passed ? "Released" : unlocked ? "In study" : "Locked";
   return `
-    <article class="domain-card">
+    <article class="domain-card ${unlocked ? "" : "is-locked"}">
       <div class="domain-card-head">
         <div>
           <span class="domain-number">${domain.number}</span>
           <h2 style="margin-top:10px;">${escapeHtml(domain.name)}</h2>
           <p class="domain-meta">${domain.weight}% average exam weight</p>
         </div>
-        <span class="status ${score >= 0.75 ? "resolved" : "open"}">${Math.round(score * 100)}%</span>
+        <span class="status ${statusClass}">${statusLabel}</span>
       </div>
       <p class="muted small">${escapeHtml(domain.objectiveSummary)}</p>
       <ul class="pill-list">
         ${domain.objectives.slice(0, 5).map((objective) => `<li class="pill">${escapeHtml(objective)}</li>`).join("")}
       </ul>
       ${progressRow("Readiness", score)}
+      ${gate.lastScore !== null && gate.lastScore !== undefined ? `<p class="small muted">Last mastery gate: ${Math.round(gate.lastScore * 100)}% after ${gate.attempts || 0} attempt${gate.attempts === 1 ? "" : "s"}.</p>` : ""}
+      ${!unlocked ? `<p class="small muted">Pass Domain ${domain.number - 1} mastery gate to unlock.</p>` : ""}
       <div class="toolbar">
-        <button class="chip-button ${state.selectedDomain === domain.id ? "is-active" : ""}" type="button" data-action="select-domain" data-domain="${domain.id}">Open domain</button>
-        <button class="chip-button" type="button" data-action="start-domain-quiz" data-domain="${domain.id}">Domain quiz</button>
+        <button class="chip-button ${state.selectedDomain === domain.id ? "is-active" : ""}" type="button" data-action="select-domain" data-domain="${domain.id}" ${unlocked ? "" : "disabled"}>Open domain</button>
+        <button class="chip-button" type="button" data-action="start-domain-gate" data-domain="${domain.id}" ${unlocked ? "" : "disabled"}>Mastery quiz</button>
       </div>
     </article>
+  `;
+}
+
+function renderDomainOverview(domain) {
+  return `
+    <section class="section domain-overview">
+      <div class="result-head">
+        <div>
+          <p class="eyebrow">Compiled domain notes</p>
+          <h2>Domain ${domain.number}: ${escapeHtml(domain.name)}</h2>
+        </div>
+        <span class="pill">${domain.concepts.length} lessons</span>
+      </div>
+      <p class="lead">${escapeHtml(domain.objectiveSummary)}</p>
+      ${renderDomainGatePanel(domain)}
+      ${domain.sourceSynthesis?.length ? `
+        <div class="callout">
+          <h3>Source synthesis</h3>
+          <ul class="compact-list">
+            ${domain.sourceSynthesis.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+          </ul>
+        </div>
+      ` : ""}
+      <div class="grid two">
+        <div class="callout">
+          <h3>Official objectives</h3>
+          <ul class="compact-list">
+            ${domain.objectives.map((objective) => `<li>${escapeHtml(objective)}</li>`).join("")}
+          </ul>
+        </div>
+        <div class="callout">
+          <h3>Suggested study path</h3>
+          <ol class="compact-list">
+            ${(domain.studyPath?.length ? domain.studyPath : domain.concepts.map((item) => item.title)).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+          </ol>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderDomainGatePanel(domain) {
+  const unlocked = isDomainUnlocked(domain.id);
+  const passed = isDomainPassed(domain.id);
+  const gate = state.domainGates[domain.id] || {};
+  const previous = previousDomain(domain.id);
+  const quizSize = domainGateQuestions(domain.id).length;
+  const lastScore = gate.lastScore === null || gate.lastScore === undefined ? "Not attempted" : `${Math.round(gate.lastScore * 100)}%`;
+  return `
+    <div class="callout ${passed ? "accent" : unlocked ? "" : "warning"}">
+      <div class="result-head">
+        <div>
+          <h3>Domain release gate</h3>
+          <p class="muted small">Study the notes, then pass the full-domain mastery quiz at ${Math.round(DOMAIN_GATE_PASS_RATE * 100)}% or higher to unlock the next domain.</p>
+        </div>
+        <span class="status ${passed ? "resolved" : unlocked ? "open" : "locked"}">${passed ? "Released" : unlocked ? "Ready" : "Locked"}</span>
+      </div>
+      <div class="grid three" style="margin-top:12px;">
+        <div>
+          <strong>${quizSize}</strong>
+          <p class="muted small">Detailed questions</p>
+        </div>
+        <div>
+          <strong>${lastScore}</strong>
+          <p class="muted small">Last gate score</p>
+        </div>
+        <div>
+          <strong>${gate.attempts || 0}</strong>
+          <p class="muted small">Attempts</p>
+        </div>
+      </div>
+      <div class="toolbar" style="margin-top:12px;">
+        ${unlocked
+          ? `<button class="button" type="button" data-action="start-domain-gate" data-domain="${domain.id}">${passed ? "Retake mastery quiz" : "Start mastery quiz"}</button>`
+          : `<button class="ghost-button" type="button" data-action="select-domain" data-domain="${previous?.id || "d1"}">Study previous domain</button>`
+        }
+      </div>
+    </div>
   `;
 }
 
@@ -2327,6 +2610,8 @@ function renderConcept(domain, concept) {
       ${conceptPart("Common exam trap", concept.trap, "warning")}
       ${concept.related ? `<section class="concept-section"><h3>Related concepts</h3><ul>${concept.related.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></section>` : ""}
       ${concept.comparisons ? renderComparison(concept.comparisons) : ""}
+      ${concept.flow ? renderFlow(concept.flow) : ""}
+      ${concept.sources ? renderConceptSources(concept.sources) : ""}
       ${conceptPart("Memory hook", concept.hook, "accent")}
       ${conceptPart("Knowledge check", concept.check)}
       <section class="concept-section">
@@ -2359,6 +2644,33 @@ function renderComparison(rows) {
   `;
 }
 
+function renderFlow(steps) {
+  return `
+    <section class="concept-section">
+      <h3>Plain-language flow</h3>
+      <div class="flow-diagram">
+        ${steps.map((step, index) => `
+          <div class="flow-step">
+            <span>${index + 1}</span>
+            <strong>${escapeHtml(step)}</strong>
+          </div>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderConceptSources(sources) {
+  return `
+    <section class="concept-section">
+      <h3>Source synthesis</h3>
+      <ul class="compact-list">
+        ${sources.map((source) => `<li>${escapeHtml(source)}</li>`).join("")}
+      </ul>
+    </section>
+  `;
+}
+
 function renderPractice() {
   const selectedDomain = domainById(state.selectedDomain);
   return `
@@ -2367,16 +2679,16 @@ function renderPractice() {
         <h2>Practice engine</h2>
         <p class="muted small">Each original question explains the best answer, each distractor, the CISSP principle, and whether the expected lens is management or technical.</p>
         <div class="toolbar" style="margin-top:14px;">
-          ${["learn", "domain", "weak", "mixed", "rapid", "cat"].map((mode) => `
+          ${["learn", "domain", "domain-gate", "weak", "mixed", "rapid", "cat"].map((mode) => `
             <button class="segment-button ${state.practiceMode === mode ? "is-active" : ""}" type="button" data-action="set-practice-mode" data-mode="${mode}">${practiceLabel(mode)}</button>
           `).join("")}
         </div>
       </section>
-      ${state.practiceMode === "domain" || state.practiceMode === "learn" ? `
+      ${state.practiceMode === "domain" || state.practiceMode === "domain-gate" || state.practiceMode === "learn" ? `
         <section class="settings-panel">
           <h2>Selected domain</h2>
           <select class="select" data-action="select-domain-input">
-            ${domains.map((domain) => `<option value="${domain.id}" ${domain.id === selectedDomain.id ? "selected" : ""}>Domain ${domain.number}: ${escapeHtml(domain.name)}</option>`).join("")}
+            ${domains.map((domain) => `<option value="${domain.id}" ${domain.id === selectedDomain.id ? "selected" : ""} ${isDomainUnlocked(domain.id) ? "" : "disabled"}>Domain ${domain.number}: ${escapeHtml(domain.name)}${isDomainUnlocked(domain.id) ? "" : " - locked"}</option>`).join("")}
           </select>
         </section>
       ` : ""}
@@ -2409,6 +2721,7 @@ function practiceLabel(mode) {
   return {
     learn: "Learn mode",
     domain: "Timed domain quiz",
+    "domain-gate": "Domain mastery gate",
     weak: "Weakness drill",
     mixed: "Mixed scenarios",
     rapid: "Rapid ten",
@@ -2420,6 +2733,7 @@ function practiceDescription(mode) {
   return {
     learn: "Immediate explanations, scoped to the selected domain.",
     domain: "Selected-domain set with exam-style explanations.",
+    "domain-gate": `Full-domain mastery quiz. Score ${Math.round(DOMAIN_GATE_PASS_RATE * 100)}% or higher to unlock the next domain.`,
     weak: "Questions from your weakest weighted domains.",
     mixed: "Weighted set across domains.",
     rapid: "Ten fast questions for daily reps.",
@@ -2494,6 +2808,7 @@ function renderConfidence() {
 }
 
 function renderExplanation(question) {
+  const { concept } = conceptById(question.concept);
   return `
     <div class="explanation">
       <div>
@@ -2508,6 +2823,14 @@ function renderExplanation(question) {
           </div>
         `).join("")}
       </div>
+      ${state.session?.mode === "domain-gate" ? `
+        <div class="callout accent">
+          <strong>Lesson tie-back: ${escapeHtml(concept.title)}</strong>
+          <p class="small">${escapeHtml(concept.simple || concept.quick)}</p>
+          <p class="small"><strong>Trap:</strong> ${escapeHtml(concept.trap || "Do not skip the CISSP decision rule.")}</p>
+          <p class="small"><strong>Memory hook:</strong> ${escapeHtml(concept.hook || concept.quick)}</p>
+        </div>
+      ` : ""}
       <div class="grid two">
         <div class="callout accent">
           <strong>CISSP principle</strong>
@@ -2527,6 +2850,7 @@ function renderSessionSummary() {
   const total = session.answers.length;
   const correct = session.answers.filter((answer) => answer.correct).length;
   const diagnostic = session.type === "diagnostic";
+  if (session.type === "domain-gate") return renderDomainGateSummary(session);
   return `
     <div class="view-stack">
       <section class="result-card">
@@ -2540,6 +2864,42 @@ function renderSessionSummary() {
           <button class="button" type="button" data-action="close-summary" data-view="${diagnostic ? "plan" : "dashboard"}">${diagnostic ? "Open study plan" : "Back to dashboard"}</button>
           <button class="ghost-button" type="button" data-action="close-summary" data-view="errors">Review mistakes</button>
           <button class="ghost-button" type="button" data-action="start-practice" data-mode="weak">Weakness drill</button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function renderDomainGateSummary(session) {
+  const result = domainGateResult(session);
+  const domain = domainById(session.domainId || state.selectedDomain);
+  const next = nextDomain(domain.id);
+  const passed = isDomainPassed(domain.id) || result.passed;
+  const weakConceptRows = result.weakConcepts.map((conceptId) => conceptById(conceptId).concept);
+  return `
+    <div class="view-stack">
+      <section class="result-card">
+        <p class="eyebrow">Domain mastery gate complete</p>
+        <h2>${passed ? "Released" : "Not released yet"}: ${correct}/${result.total} correct (${Math.round(result.score * 100)}%)</h2>
+        <p class="muted small">Passing score is ${Math.round(DOMAIN_GATE_PASS_RATE * 100)}%. ${passed ? next ? `Domain ${next.number} is now unlocked.` : "All domains are released." : "Review the missed concepts, then retake the mastery quiz."}</p>
+        ${weakConceptRows.length ? `
+          <div class="callout warning" style="margin-top:16px;">
+            <h3>Restudy before retry</h3>
+            <ul class="compact-list">
+              ${weakConceptRows.map((concept) => `<li><strong>${escapeHtml(concept.title)}</strong>: ${escapeHtml(concept.trap || concept.quick)}</li>`).join("")}
+            </ul>
+          </div>
+        ` : `
+          <div class="callout accent" style="margin-top:16px;">
+            <h3>Clean pass</h3>
+            <p class="small">No missed concepts in this gate attempt. Keep the flashcards warm so the release holds under time pressure.</p>
+          </div>
+        `}
+        <div class="toolbar" style="margin-top:16px;">
+          ${passed && next ? `<button class="button" type="button" data-action="close-summary" data-view="domains" data-domain="${next.id}">Open Domain ${next.number}</button>` : ""}
+          <button class="${passed && !next ? "button" : "ghost-button"}" type="button" data-action="close-summary" data-view="domains" data-domain="${domain.id}">${passed && !next ? "Back to domains" : "Restudy domain"}</button>
+          <button class="ghost-button" type="button" data-action="start-practice" data-mode="domain-gate">Retake mastery quiz</button>
+          <button class="ghost-button" type="button" data-action="close-summary" data-view="errors">Review mistakes</button>
         </div>
       </section>
     </div>
@@ -3006,6 +3366,11 @@ async function handleClick(event) {
   }
   if (action === "start-practice") {
     const mode = target.dataset.mode || state.practiceMode || "mixed";
+    if ((mode === "domain" || mode === "domain-gate" || mode === "learn") && !isDomainUnlocked(state.selectedDomain)) {
+      state.toast = "Pass the previous domain gate first.";
+      render();
+      return;
+    }
     state.practiceMode = mode;
     startQuestionSession(mode);
     state.activeView = "practice";
@@ -3021,6 +3386,11 @@ async function handleClick(event) {
     return;
   }
   if (action === "select-domain") {
+    if (!isDomainUnlocked(target.dataset.domain)) {
+      state.toast = "Pass the previous domain gate first.";
+      render();
+      return;
+    }
     state.selectedDomain = target.dataset.domain;
     state.selectedConcept = domainById(state.selectedDomain).concepts[0].id;
     await saveState();
@@ -3028,6 +3398,11 @@ async function handleClick(event) {
     return;
   }
   if (action === "start-domain-quiz") {
+    if (!isDomainUnlocked(target.dataset.domain)) {
+      state.toast = "Pass the previous domain gate first.";
+      render();
+      return;
+    }
     state.selectedDomain = target.dataset.domain;
     state.practiceMode = "domain";
     startQuestionSession("domain");
@@ -3036,8 +3411,29 @@ async function handleClick(event) {
     render();
     return;
   }
+  if (action === "start-domain-gate") {
+    if (!isDomainUnlocked(target.dataset.domain)) {
+      state.toast = "Pass the previous domain gate first.";
+      render();
+      return;
+    }
+    state.selectedDomain = target.dataset.domain;
+    state.selectedConcept = domainById(state.selectedDomain).concepts[0].id;
+    state.practiceMode = "domain-gate";
+    state.activeView = "practice";
+    startQuestionSession("domain-gate");
+    await saveState();
+    render();
+    return;
+  }
   if (action === "open-concept") {
-    state.selectedDomain = target.dataset.domain || conceptById(target.dataset.concept).domain.id;
+    const requestedDomain = target.dataset.domain || conceptById(target.dataset.concept).domain.id;
+    if (!isDomainUnlocked(requestedDomain)) {
+      state.toast = "Pass the previous domain gate first.";
+      render();
+      return;
+    }
+    state.selectedDomain = requestedDomain;
     state.selectedConcept = target.dataset.concept || domainById(state.selectedDomain).concepts[0].id;
     state.activeView = "domains";
     state.session = null;
@@ -3049,6 +3445,12 @@ async function handleClick(event) {
   }
   if (action === "practice-concept") {
     const conceptId = target.dataset.concept;
+    const found = conceptById(conceptId);
+    if (!isDomainUnlocked(found.domain.id)) {
+      state.toast = "Pass the previous domain gate first.";
+      render();
+      return;
+    }
     const pool = allQuestions.filter((question) => question.concept === conceptId);
     state.session = {
       id: `session-${Date.now()}`,
@@ -3073,6 +3475,11 @@ async function handleClick(event) {
     const concept = target.dataset.concept;
     if (concept) {
       const found = conceptById(concept);
+      if (!isDomainUnlocked(found.domain.id)) {
+        state.toast = "Pass the previous domain gate first.";
+        render();
+        return;
+      }
       state.selectedDomain = found.domain.id;
       state.selectedConcept = concept;
     }
@@ -3119,6 +3526,8 @@ async function handleClick(event) {
           total: state.session.answers.length,
           correct: state.session.answers.filter((answer) => answer.correct).length
         };
+      } else if (state.session.type === "domain-gate") {
+        finalizeDomainGateSession(state.session);
       }
       state.session.index += 1;
     } else {
@@ -3138,6 +3547,10 @@ async function handleClick(event) {
     return;
   }
   if (action === "close-summary") {
+    if (target.dataset.domain) {
+      state.selectedDomain = target.dataset.domain;
+      state.selectedConcept = domainById(state.selectedDomain).concepts[0].id;
+    }
     state.activeView = target.dataset.view || "dashboard";
     state.session = null;
     await saveState();
@@ -3194,6 +3607,12 @@ async function handleClick(event) {
     const domain = target.dataset.domain;
     const concept = target.dataset.concept;
     const mode = target.dataset.mode;
+    if (domain && !isDomainUnlocked(domain)) {
+      state.toast = "Pass the previous domain gate first.";
+      state.commandOpen = false;
+      render();
+      return;
+    }
     if (domain) state.selectedDomain = domain;
     if (concept) state.selectedConcept = concept;
     if (mode) state.practiceMode = mode;
@@ -3247,6 +3666,11 @@ function handleInput(event) {
     render();
   }
   if (action === "select-domain-input") {
+    if (!isDomainUnlocked(target.value)) {
+      state.toast = "Pass the previous domain gate first.";
+      render();
+      return;
+    }
     state.selectedDomain = target.value;
     saveState();
     render();
